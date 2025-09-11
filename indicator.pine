@@ -1,0 +1,118 @@
+//@version=5
+indicator("Livermore strategy v1.0", overlay=true)// ===== GMMA 计算 =====
+// 短期GMMA
+ema3  = ta.ema(close, 3)
+ema5  = ta.ema(close, 5)
+ema8  = ta.ema(close, 8)
+ema10 = ta.ema(close, 10)
+ema12 = ta.ema(close, 12)
+ema15 = ta.ema(close, 15)
+shortAvg = (ema3 + ema5 + ema8 + ema10 + ema12 + ema15) / 6
+
+// 长期GMMA
+ema30 = ta.ema(close, 30)
+ema35 = ta.ema(close, 35)
+ema40 = ta.ema(close, 40)
+ema45 = ta.ema(close, 45)
+ema50 = ta.ema(close, 50)
+ema60 = ta.ema(close, 60)
+longAvg = (ema30 + ema35 + ema40 + ema45 + ema50 + ema60) / 6
+
+// GMMA 上穿条件
+gmmaCrossUp = ta.crossover(shortAvg, longAvg)
+gmmaPrevCondition = (shortAvg[1] <= longAvg[1]) or (shortAvg[2] <= longAvg[2])
+gmmaSignal = gmmaCrossUp and gmmaPrevCondition
+
+// ===== SuperTrend 计算 =====
+atrPeriod = input.int(10, "ATR 周期", minval=1)
+factor = input.float(3.0, "SuperTrend 因子", minval=0.01, step=0.01)
+
+[supertrend, direction] = ta.supertrend(factor, atrPeriod)
+
+// SuperTrend 条件
+priceAboveSupertrend = close > supertrend
+supertrendRising = direction < 0  // direction < 0 表示上升趋势
+// 方案1：移除上一根K线的限制，只要价格在SuperTrend线上方且趋势向上即可
+supertrendSignal = priceAboveSupertrend and supertrendRising
+
+
+// ===== MACD 计算 =====
+fastLength = input.int(12, "MACD 快线", minval=1)
+slowLength = input.int(26, "MACD 慢线", minval=1)
+signalLength = input.int(9, "MACD 信号线", minval=1)
+
+[macdLine, signalLine, histLine] = ta.macd(close, fastLength, slowLength, signalLength)
+
+// MACD 条件
+difCrossUp = ta.crossover(macdLine, signalLine)  // DIF 上穿 DEA
+macdHistPositive = histLine > 0  // MACD 柱状图为正
+// prevDifBelowDea = macdLine[1] <= signalLine[1]  // 上一周期 DIF 小于等于 DEA
+macdSignal = difCrossUp and macdHistPositive
+
+// ===== 综合买入信号 =====
+// buySignal = gmmaSignal and supertrendSignal and macdSignal
+buySignal = gmmaSignal and supertrendSignal
+// ===== 卖出信号条件 =====
+// GMMA 下穿条件
+gmmaCrossDown = ta.crossunder(shortAvg, longAvg)
+gmmaPrevConditionSell = shortAvg[1] >= longAvg[1]
+gmmaSellSignal = gmmaCrossDown and gmmaPrevConditionSell
+
+// SuperTrend 卖出条件
+priceBelowSupertrend = close < supertrend
+supertrendFalling = direction > 0  // direction > 0 表示下降趋势
+// prevPriceAboveSupertrend = close[1] >= supertrend[1]
+supertrendSellSignal = priceBelowSupertrend and supertrendFalling 
+
+// MACD 卖出条件
+difCrossDown = ta.crossunder(macdLine, signalLine)  // DIF 下穿 DEA
+macdHistNegative = histLine < 0  // MACD 柱状图为负
+// prevDifAboveDea = macdLine[1] >= signalLine[1]  // 上一周期 DIF 大于等于 DEA
+macdSellSignal = difCrossDown and macdHistNegative
+
+// ===== 综合卖出信号 =====
+// sellSignal = gmmaSellSignal and supertrendSellSignal and macdSellSignal
+sellSignal = gmmaSellSignal  and supertrendSellSignal
+// ===== 可视化 =====
+// 买入信号
+plotshape(buySignal, title="买入信号", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)
+
+// 卖出信号
+plotshape(sellSignal, title="卖出信号", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)
+
+// SuperTrend 线
+// plot(supertrend, title="SuperTrend", color=direction < 0 ? color.green : color.red, linewidth=2)
+
+
+// 其他GMMA均线（可选，注释掉可以减少视觉干扰）
+// plot(ema3,  color=color.new(color.blue, 80), linewidth=1, title="EMA 3")
+// plot(ema5,  color=color.new(color.blue, 80), linewidth=1, title="EMA 5")
+// plot(ema8,  color=color.new(color.blue, 80), linewidth=1, title="EMA 8")
+// plot(ema10, color=color.new(color.blue, 80), linewidth=1, title="EMA 10")
+// plot(ema12, color=color.new(color.blue, 80), linewidth=1, title="EMA 12")
+// plot(ema15, color=color.new(color.blue, 80), linewidth=1, title="EMA 15")
+// plot(ema30, color=color.new(color.red, 80), linewidth=1, title="EMA 30")
+// plot(ema35, color=color.new(color.red, 80), linewidth=1, title="EMA 35")
+// plot(ema40, color=color.new(color.red, 80), linewidth=1, title="EMA 40")
+// plot(ema45, color=color.new(color.red, 80), linewidth=1, title="EMA 45")
+// plot(ema50, color=color.new(color.red, 80), linewidth=1, title="EMA 50")
+// plot(ema60, color=color.new(color.red, 80), linewidth=1, title="EMA 60")
+
+// 记录上一次买入价和bar
+var float lastBuyPrice = na
+var int lastBuyBar = na
+var line tradeLine = na
+
+if buySignal
+    lastBuyPrice := close
+    lastBuyBar := bar_index
+    label.new(bar_index, low, text="BUY\n" + str.tostring(close, "#.##"), style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
+
+if sellSignal and not na(lastBuyPrice)
+    pointDiff = close - lastBuyPrice
+    // 盈亏连线
+    tradeLine := line.new(x1=lastBuyBar, y1=lastBuyPrice, x2=bar_index, y2=close, color=pointDiff >= 0 ? color.green : color.red, width=2)
+    // SELL标签始终为红色
+    label.new(bar_index, high, text="SELL\n" + str.tostring(close, "#.##") + "\nΔ: " + str.tostring(pointDiff, "#.##"),style=label.style_label_down, color=color.red, textcolor=color.white, size=size.normal)
+    lastBuyPrice := na
+    lastBuyBar := na
