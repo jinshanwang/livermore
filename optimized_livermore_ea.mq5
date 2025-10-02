@@ -552,7 +552,7 @@ SignalData AnalyzeMarketSignals()
     signals.supertrendSignal = CheckSupertrendSignal();
     signals.macdSignal = CheckMACDSignal();
     
-    signals.buySignal = signals.gmmaSignal && signals.supertrendSignal && signals.macdSignal;
+    signals.buySignal = signals.gmmaSignal && signals.supertrendSignal;
     signals.sellSignal = CheckSellSignal();
     
     return signals;
@@ -614,10 +614,10 @@ bool CheckSellSignal()
     bool supertrendFalling = supertrendBuffer[0] < supertrendBuffer[1];
     bool supertrendSellSignal = priceBelowSupertrend && supertrendFalling;
     
-    // MACD卖出条件
-    bool macdCrossDown = (macdLineBuffer[0] < signalLineBuffer[0]) && (macdLineBuffer[1] >= signalLineBuffer[1]);
+    // MACD卖出条件 暂时不启用
+    //bool macdCrossDown = (macdLineBuffer[0] < signalLineBuffer[0]) && (macdLineBuffer[1] >= signalLineBuffer[1]);
     
-    return gmmaSellSignal && supertrendSellSignal && macdCrossDown;
+    return gmmaSellSignal && supertrendSellSignal;
 }
 
 //+------------------------------------------------------------------+
