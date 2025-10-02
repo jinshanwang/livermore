@@ -22,13 +22,13 @@ input group "=== 交易参数 ==="
 input double LotSize = 0.1;             // 手数
 input int    MagicNumber = 123456;      // 魔术数字
 input int    Slippage = 3;              // 滑点
-input bool   UseStopLoss = true;        // 使用止损
-input bool   UseTakeProfit = true;      // 使用止盈
+input bool   UseStopLoss = false;       // 使用止损
+input bool   UseTakeProfit = false;     // 使用止盈
 input double StopLoss_Points = 100;     // 止损点数
 input double TakeProfit_Points = 200;   // 止盈点数
 
 input group "=== 风险管理 ==="
-input double MaxRiskPercent = 2.0;      // 最大风险百分比
+// 手数计算：账户余额/1000 = 手数
 
 input group "=== 时间过滤 ==="
 input bool   UseTimeFilter = false;     // 使用时间过滤
@@ -668,13 +668,13 @@ void OpenBuyPosition()
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double lot = CalculateLotSize();
     
+    // 不使用止损止盈，设置为0
     double sl = 0, tp = 0;
     
-    if(UseStopLoss)
-        sl = ask - StopLoss_Points * _Point;
-    
-    if(UseTakeProfit)
-        tp = ask + TakeProfit_Points * _Point;
+    Print("=== 开仓信息 ===");
+    Print("当前价格(ASK): ", ask);
+    Print("手数: ", lot);
+    Print("止损止盈: 已禁用");
     
     if(trade.Buy(lot, _Symbol, ask, sl, tp, "Livermore Strategy Buy"))
     {
@@ -684,11 +684,11 @@ void OpenBuyPosition()
         hasPosition = true;
         totalTrades++;
         
-        Print("开多仓成功 - 价格: ", ask, ", 手数: ", lot, ", 止损: ", sl, ", 止盈: ", tp);
+        Print("开多仓成功 - 价格: ", ask, ", 手数: ", lot, " (无止损止盈)");
     }
     else
     {
-        uint error = GetLastError();
+        uint error = GetLastError();    
         Print("开多仓失败 - 错误代码: ", error, ", 描述: ", ErrorDescription(error));
     }
 }
@@ -722,18 +722,10 @@ void ClosePosition()
 //+------------------------------------------------------------------+
 double CalculateLotSize()
 {
-    if(MaxRiskPercent <= 0)
-        return LotSize;
-    
     double accountBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-    double riskAmount = accountBalance * MaxRiskPercent / 100.0;
-    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-    double stopLossPoints = StopLoss_Points;
     
-    if(stopLossPoints <= 0)
-        return LotSize;
-    
-    double calculatedLot = riskAmount / (stopLossPoints * _Point * tickValue);
+    // 基于账户余额计算手数：1000块对应1手
+    double calculatedLot = accountBalance / 1000.0;
     
     //--- 标准化手数
     double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
