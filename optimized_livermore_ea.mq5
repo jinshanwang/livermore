@@ -410,14 +410,23 @@ void OnTick()
     //--- 执行交易逻辑
     if(hasPosition)
     {
-        if(signals.sellSignal)
+        // 检查是否需要平仓（任何反向信号都平仓）
+        if(signals.buySignal || signals.sellSignal)
         {
             ClosePosition();
         }
     }
-    else if(signals.buySignal && CanOpenNewPosition())
+    else
     {
-        OpenBuyPosition();
+        // 没有持仓时，检查开仓信号
+        if(signals.buySignal && CanOpenNewPosition())
+        {
+            OpenBuyPosition();
+        }
+        else if(signals.sellSignal && CanOpenNewPosition())
+        {
+            OpenSellPosition();
+        }
     }
 }
 
@@ -576,8 +585,11 @@ SignalData AnalyzeMarketSignals()
     signals.supertrendSignal = CheckSupertrendSignal();
     signals.macdSignal = CheckMACDSignal();
     
+    // 买入信号：GMMA上穿 + SuperTrend上升
     signals.buySignal = signals.gmmaSignal && signals.supertrendSignal;
-    signals.sellSignal = CheckSellSignal();
+    
+    // 做空信号：GMMA下穿 + SuperTrend下降
+    signals.sellSignal = CheckShortSignal();
     
     return signals;
 }
@@ -619,22 +631,24 @@ bool CheckMACDSignal()
 }
 
 //+------------------------------------------------------------------+
-//| 检查卖出信号                                                    |
+//| 检查做空信号                                                    |
 //+------------------------------------------------------------------+
-bool CheckSellSignal()
+bool CheckShortSignal()
 {
     if(INDICATOR_BUFFER_SIZE < 3) return false;
     
+    // GMMA下穿条件
     bool gmmaCrossDown = (gmmaShortBuffer[0] < gmmaLongBuffer[0]) && (gmmaShortBuffer[1] >= gmmaLongBuffer[1]);
     bool gmmaPrevConditionSell = gmmaShortBuffer[1] >= gmmaLongBuffer[1];
-    bool gmmaSellSignal = gmmaCrossDown && gmmaPrevConditionSell;
+    bool gmmaShortSignal = gmmaCrossDown && gmmaPrevConditionSell;
     
+    // SuperTrend下降条件
     double currentClose = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     bool priceBelowSupertrend = currentClose < supertrendBuffer[0];
     bool supertrendFalling = supertrendBuffer[0] < supertrendBuffer[1];
-    bool supertrendSellSignal = priceBelowSupertrend && supertrendFalling;
+    bool supertrendShortSignal = priceBelowSupertrend && supertrendFalling;
     
-    return gmmaSellSignal && supertrendSellSignal;
+    return gmmaShortSignal && supertrendShortSignal;
 }
 
 //+------------------------------------------------------------------+
@@ -715,6 +729,49 @@ void OpenBuyPosition()
     {
         uint error = GetLastError();    
         Print("✗ 开多仓失败 - 错误代码: ", error, ", 描述: ", ErrorDescription(error));
+    }
+}
+
+//+------------------------------------------------------------------+
+//| 开空仓                                                          |
+//+------------------------------------------------------------------+
+void OpenSellPosition()
+{
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double lot = CalculateLotSize();
+    
+    // 检查手数是否有效
+    if(lot <= 0)
+    {
+        Print("错误：计算的手数无效: ", lot);
+        return;
+    }
+    
+    double sl = 0, tp = 0;
+    
+    // 显示保证金信息
+    ShowMarginInfo(lot, bid);
+    
+    Print("=== 准备开空仓 ===");
+    Print("当前价格(BID): ", bid);
+    Print("计算手数: ", lot);
+    Print("手数模式: ", EnumToString(LotMode));
+    Print("止损止盈: ", UseStopLoss || UseTakeProfit ? "启用" : "禁用");
+    
+    if(trade.Sell(lot, _Symbol, bid, sl, tp, "Livermore Strategy Sell"))
+    {
+        lastBuyPrice = bid;
+        lastBuyTime = TimeCurrent();
+        lastSignalTime = iTime(_Symbol, _Period, 0);
+        hasPosition = true;
+        totalTrades++;
+        
+        Print("✓ 开空仓成功 - 价格: ", bid, ", 手数: ", lot);
+    }
+    else
+    {
+        uint error = GetLastError();    
+        Print("✗ 开空仓失败 - 错误代码: ", error, ", 描述: ", ErrorDescription(error));
     }
 }
 
