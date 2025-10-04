@@ -44,7 +44,7 @@ input int    StartHour = 8;             // 开始小时
 input int    EndHour = 18;              // 结束小时
 
 input group "=== 信号过滤 ==="
-input int    MinBarsBetweenSignals = 3; // 信号间隔最小K线数
+input int    MinBarsBetweenSignals = 10; // 信号间隔最小K线数
 
 //--- 常量定义
 #define INDICATOR_BUFFER_SIZE 100
@@ -410,9 +410,18 @@ void OnTick()
     //--- 执行交易逻辑
     if(hasPosition)
     {
-        // 检查是否需要平仓（任何反向信号都平仓）
-        if(signals.buySignal || signals.sellSignal)
+        // 获取当前持仓方向
+        bool isLongPosition = IsLongPosition();
+        
+        // 根据持仓方向检查反向信号
+        if(isLongPosition && signals.sellSignal)
         {
+            Print("检测到做空信号，平多仓");
+            ClosePosition();
+        }
+        else if(!isLongPosition && signals.buySignal)
+        {
+            Print("检测到买入信号，平空仓");
             ClosePosition();
         }
     }
@@ -421,10 +430,12 @@ void OnTick()
         // 没有持仓时，检查开仓信号
         if(signals.buySignal && CanOpenNewPosition())
         {
+            Print("检测到买入信号，准备开多仓");
             OpenBuyPosition();
         }
         else if(signals.sellSignal && CanOpenNewPosition())
         {
+            Print("检测到做空信号，准备开空仓");
             OpenSellPosition();
         }
     }
@@ -668,6 +679,25 @@ bool CanOpenNewPosition()
     }
     
     return true;
+}
+
+//+------------------------------------------------------------------+
+//| 检查当前持仓是否为多头                                          |
+//+------------------------------------------------------------------+
+bool IsLongPosition()
+{
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        if(positionInfo.SelectByIndex(i))
+        {
+            if(positionInfo.Symbol() == _Symbol && 
+               positionInfo.Magic() == MagicNumber)
+            {
+                return (positionInfo.PositionType() == POSITION_TYPE_BUY);
+            }
+        }
+    }
+    return false; // 没有持仓
 }
 
 //+------------------------------------------------------------------+
