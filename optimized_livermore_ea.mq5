@@ -22,10 +22,44 @@ input group "=== 交易参数 ==="
 input double LotSize = 0.1;             // 固定手数（当LotMode=FIXED时使用）
 input int    MagicNumber = 123456;      // 魔术数字
 input int    Slippage = 3;              // 滑点
-input bool   UseStopLoss = false;       // 使用止损
-input bool   UseTakeProfit = false;     // 使用止盈
-input double StopLoss_Points = 100;     // 止损点数
-input double TakeProfit_Points = 200;   // 止盈点数
+
+input group "=== 风险管理 ==="
+input bool   UseStopLoss = true;        // 使用止损
+input bool   UseTakeProfit = false;    // 使用止盈
+input bool   UseTrailingStop = true;   // 使用移动止损
+input bool   UseMaxHoldTime = false;   // 使用最大持仓时间
+
+input group "=== 止损设置 ==="
+enum STOP_LOSS_TYPE
+{
+    FIXED_POINTS = 0,      // 固定点数
+    ATR_BASED = 1,         // 基于ATR
+    SUPERTREND_BASED = 2   // 基于SuperTrend
+};
+input STOP_LOSS_TYPE StopLossType = ATR_BASED;  // 止损类型
+input double StopLoss_Points = 100;             // 固定止损点数
+input double ATR_Multiplier = 2.0;               // ATR倍数
+input double SuperTrend_Offset = 10.0;         // SuperTrend偏移点数
+
+input group "=== 止盈设置 ==="
+enum TAKE_PROFIT_TYPE
+{
+    FIXED_POINTS_TP = 0,    // 固定点数
+    ATR_BASED_TP = 1,       // 基于ATR
+    RISK_REWARD = 2         // 风险回报比
+};
+input TAKE_PROFIT_TYPE TakeProfitType = RISK_REWARD;  // 止盈类型
+input double TakeProfit_Points = 200;                 // 固定止盈点数
+input double ATR_TP_Multiplier = 3.0;                 // ATR止盈倍数
+input double RiskRewardRatio = 2.0;                   // 风险回报比
+
+input group "=== 移动止损 ==="
+input double TrailingStart = 50.0;     // 移动止损启动点数
+input double TrailingStep = 10.0;      // 移动止损步长
+input double TrailingStop = 20.0;       // 移动止损距离
+
+input group "=== 时间管理 ==="
+input int    MaxHoldHours = 24;        // 最大持仓时间（小时）
 
 input group "=== 手数计算模式 ==="
 enum LOT_MODE
@@ -410,6 +444,12 @@ void OnTick()
     //--- 执行交易逻辑
     if(hasPosition)
     {
+        // 检查移动止损
+        if(UseTrailingStop)
+        {
+            UpdateTrailingStop();
+        }
+        
         // 获取当前持仓方向
         bool isLongPosition = IsLongPosition();
         
@@ -720,6 +760,235 @@ bool CheckOurPosition()
 }
 
 //+------------------------------------------------------------------+
+//| 计算动态止损价格                                                |
+//+------------------------------------------------------------------+
+double CalculateStopLoss(double entryPrice, bool isLong)
+{
+    double stopLoss = 0;
+    
+    if(!UseStopLoss) return 0;
+    
+    switch(StopLossType)
+    {
+        case FIXED_POINTS:
+            // 固定点数止损
+            if(isLong)
+                stopLoss = entryPrice - StopLoss_Points * _Point;
+            else
+                stopLoss = entryPrice + StopLoss_Points * _Point;
+            break;
+            
+        case ATR_BASED:
+            {
+                // 基于ATR的止损
+                double atrValues[1];
+                if(CopyBuffer(atrHandle, 0, 0, 1, atrValues) > 0)
+                {
+                    double atrStop = atrValues[0] * ATR_Multiplier;
+                    if(isLong)
+                        stopLoss = entryPrice - atrStop;
+                    else
+                        stopLoss = entryPrice + atrStop;
+                }
+                else
+                {
+                    // ATR获取失败，使用固定点数
+                    if(isLong)
+                        stopLoss = entryPrice - StopLoss_Points * _Point;
+                    else
+                        stopLoss = entryPrice + StopLoss_Points * _Point;
+                }
+            }
+            break;
+            
+        case SUPERTREND_BASED:
+            // 基于SuperTrend的止损
+            if(INDICATOR_BUFFER_SIZE > 0)
+            {
+                double supertrendValue = supertrendBuffer[0];
+                if(isLong)
+                    stopLoss = supertrendValue - SuperTrend_Offset * _Point;
+                else
+                    stopLoss = supertrendValue + SuperTrend_Offset * _Point;
+            }
+            else
+            {
+                // SuperTrend获取失败，使用固定点数
+                if(isLong)
+                    stopLoss = entryPrice - StopLoss_Points * _Point;
+                else
+                    stopLoss = entryPrice + StopLoss_Points * _Point;
+            }
+            break;
+    }
+    
+    // 确保止损距离符合经纪商要求
+    double minStopDistance = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
+    if(isLong)
+    {
+        if(entryPrice - stopLoss < minStopDistance)
+            stopLoss = entryPrice - minStopDistance - _Point;
+    }
+    else
+    {
+        if(stopLoss - entryPrice < minStopDistance)
+            stopLoss = entryPrice + minStopDistance + _Point;
+    }
+    
+    return NormalizeDouble(stopLoss, _Digits);
+}
+
+//+------------------------------------------------------------------+
+//| 计算动态止盈价格                                                |
+//+------------------------------------------------------------------+
+double CalculateTakeProfit(double entryPrice, double stopLoss, bool isLong)
+{
+    double takeProfit = 0;
+    
+    if(!UseTakeProfit) return 0;
+    
+    switch(TakeProfitType)
+    {
+        case FIXED_POINTS_TP:
+            // 固定点数止盈
+            if(isLong)
+                takeProfit = entryPrice + TakeProfit_Points * _Point;
+            else
+                takeProfit = entryPrice - TakeProfit_Points * _Point;
+            break;
+            
+        case ATR_BASED_TP:
+            {
+                // 基于ATR的止盈
+                double atrValues[1];
+                if(CopyBuffer(atrHandle, 0, 0, 1, atrValues) > 0)
+                {
+                    double atrTP = atrValues[0] * ATR_TP_Multiplier;
+                    if(isLong)
+                        takeProfit = entryPrice + atrTP;
+                    else
+                        takeProfit = entryPrice - atrTP;
+                }
+                else
+                {
+                    // ATR获取失败，使用固定点数
+                    if(isLong)
+                        takeProfit = entryPrice + TakeProfit_Points * _Point;
+                    else
+                        takeProfit = entryPrice - TakeProfit_Points * _Point;
+                }
+            }
+            break;
+            
+        case RISK_REWARD:
+            // 风险回报比止盈
+            if(stopLoss > 0)
+            {
+                double riskDistance = MathAbs(entryPrice - stopLoss);
+                double rewardDistance = riskDistance * RiskRewardRatio;
+                
+                if(isLong)
+                    takeProfit = entryPrice + rewardDistance;
+                else
+                    takeProfit = entryPrice - rewardDistance;
+            }
+            else
+            {
+                // 没有止损时，使用固定点数
+                if(isLong)
+                    takeProfit = entryPrice + TakeProfit_Points * _Point;
+                else
+                    takeProfit = entryPrice - TakeProfit_Points * _Point;
+            }
+            break;
+    }
+    
+    return NormalizeDouble(takeProfit, _Digits);
+}
+
+//+------------------------------------------------------------------+
+//| 检查最大持仓时间                                                |
+//+------------------------------------------------------------------+
+bool CheckMaxHoldTime()
+{
+    if(!hasPosition) return false;
+    
+    datetime currentTime = TimeCurrent();
+    long holdTimeSeconds = currentTime - lastBuyTime;
+    long maxHoldSeconds = MaxHoldHours * 3600;
+    
+    if(holdTimeSeconds >= maxHoldSeconds)
+    {
+        Print("持仓时间: ", holdTimeSeconds/3600.0, " 小时，超过最大限制: ", MaxHoldHours, " 小时");
+        return true;
+    }
+    
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| 更新移动止损                                                    |
+//+------------------------------------------------------------------+
+void UpdateTrailingStop()
+{
+    if(!hasPosition) return;
+    
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        if(positionInfo.SelectByIndex(i))
+        {
+            if(positionInfo.Symbol() == _Symbol && 
+               positionInfo.Magic() == MagicNumber)
+            {
+                double currentPrice = (positionInfo.PositionType() == POSITION_TYPE_BUY) ? 
+                                     SymbolInfoDouble(_Symbol, SYMBOL_BID) : 
+                                     SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+                
+                double openPrice = positionInfo.PriceOpen();
+                double currentSL = positionInfo.StopLoss();
+                double newSL = currentSL;
+                
+                if(positionInfo.PositionType() == POSITION_TYPE_BUY)
+                {
+                    // 多头移动止损
+                    double profit = currentPrice - openPrice;
+                    if(profit >= TrailingStart * _Point)
+                    {
+                        double trailSL = currentPrice - TrailingStop * _Point;
+                        if(trailSL > currentSL + TrailingStep * _Point)
+                        {
+                            newSL = trailSL;
+                        }
+                    }
+                }
+                else
+                {
+                    // 空头移动止损
+                    double profit = openPrice - currentPrice;
+                    if(profit >= TrailingStart * _Point)
+                    {
+                        double trailSL = currentPrice + TrailingStop * _Point;
+                        if(trailSL < currentSL - TrailingStep * _Point || currentSL == 0)
+                        {
+                            newSL = trailSL;
+                        }
+                    }
+                }
+                
+                // 更新止损
+                if(newSL != currentSL)
+                {
+                    if(trade.PositionModify(_Symbol, newSL, positionInfo.TakeProfit()))
+                    {
+                        Print("移动止损更新: ", currentSL, " -> ", newSL);
+                    }
+                }
+            }
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
 //| 开多仓                                                          |
 //+------------------------------------------------------------------+
 void OpenBuyPosition()
@@ -734,16 +1003,19 @@ void OpenBuyPosition()
         return;
     }
     
-    double sl = 0, tp = 0;
+    // 计算动态止损
+    double sl = CalculateStopLoss(ask, true);   // 多头止损
+    double tp = 0; // 不使用止盈
     
     // 显示保证金信息
     ShowMarginInfo(lot, ask);
     
-    Print("=== 准备开仓 ===");
+    Print("=== 准备开多仓 ===");
     Print("当前价格(ASK): ", ask);
     Print("计算手数: ", lot);
+    Print("止损价格: ", sl, " (距离: ", (ask - sl)/_Point, " 点)");
+    Print("止盈: 禁用");
     Print("手数模式: ", EnumToString(LotMode));
-    Print("止损止盈: ", UseStopLoss || UseTakeProfit ? "启用" : "禁用");
     
     if(trade.Buy(lot, _Symbol, ask, sl, tp, "Livermore Strategy Buy"))
     {
@@ -777,7 +1049,9 @@ void OpenSellPosition()
         return;
     }
     
-    double sl = 0, tp = 0;
+    // 计算动态止损
+    double sl = CalculateStopLoss(bid, false);   // 空头止损
+    double tp = 0; // 不使用止盈
     
     // 显示保证金信息
     ShowMarginInfo(lot, bid);
@@ -785,8 +1059,9 @@ void OpenSellPosition()
     Print("=== 准备开空仓 ===");
     Print("当前价格(BID): ", bid);
     Print("计算手数: ", lot);
+    Print("止损价格: ", sl, " (距离: ", (sl - bid)/_Point, " 点)");
+    Print("止盈: 禁用");
     Print("手数模式: ", EnumToString(LotMode));
-    Print("止损止盈: ", UseStopLoss || UseTakeProfit ? "启用" : "禁用");
     
     if(trade.Sell(lot, _Symbol, bid, sl, tp, "Livermore Strategy Sell"))
     {
