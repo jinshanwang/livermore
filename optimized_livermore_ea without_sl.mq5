@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024, MetaQuotes Software Corp."
 #property link      "https://www.mql5.com"
-#property version   "1.10"
+#property version   "1.11"
 
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
@@ -14,42 +14,17 @@
 input group "=== 策略参数 ==="
 input int    ATR_Period = 10;           // ATR 周期
 input double SuperTrend_Factor = 3.0;   // SuperTrend 因子
-input int    MACD_Fast = 12;            // MACD 快线
-input int    MACD_Slow = 26;            // MACD 慢线
-input int    MACD_Signal = 9;           // MACD 信号线
 
 input group "=== 交易参数 ==="
-input double LotSize = 0.1;             // 固定手数（当LotMode=FIXED时使用）
+input double LotSize = 0.1;             // 固定手数(当LotMode=FIXED时使用)
 input int    MagicNumber = 123456;      // 魔术数字
 input int    Slippage = 3;              // 滑点
 
 input group "=== 风险管理 ==="
-input bool   UseStopLoss = true;        // 使用止损
-input bool   UseTakeProfit = false;    // 使用止盈
-input bool   UseTrailingStop = true;   // 使用移动止损
 input bool   UseMaxHoldTime = false;   // 使用最大持仓时间
 
-input group "=== 止损设置 ==="
-enum STOP_LOSS_TYPE
-{
-    FIXED_POINTS = 0,      // 固定点数
-    ATR_BASED = 1,         // 基于ATR
-    SUPERTREND_BASED = 2   // 基于SuperTrend
-};
-input STOP_LOSS_TYPE StopLossType = FIXED_POINTS;  // 止损类型
-input double StopLoss_Points = 200;             // 固定止损点数
-input double ATR_Multiplier = 2.0;               // ATR倍数
-input double SuperTrend_Offset = 10.0;         // SuperTrend偏移点数
-
-
-
-input group "=== 移动止损 ==="
-input double TrailingStart = 50.0;     // 移动止损启动点数
-input double TrailingStep = 10.0;      // 移动止损步长
-input double TrailingStop = 20.0;       // 移动止损距离
-
 input group "=== 时间管理 ==="
-input int    MaxHoldHours = 24;        // 最大持仓时间（小时）
+input int    MaxHoldHours = 24;        // 最大持仓时间(小时)
 
 input group "=== 手数计算模式 ==="
 enum LOT_MODE
@@ -58,7 +33,7 @@ enum LOT_MODE
     BALANCE_RATIO = 1   // 账户余额比例
 };
 input LOT_MODE LotMode = FIXED;                 // 手数计算模式
-input double BalancePerLot = 50000.0;           // 每手所需账户余额（BALANCE_RATIO模式）
+input double BalancePerLot = 50000.0;           // 每手所需账户余额(BALANCE_RATIO模式)
 input double MaxLotSize = 10.0;                 // 最大手数限制
 input double MinLotSize = 0.01;                 // 最小手数限制
 
@@ -94,15 +69,12 @@ static PENDING_ACTION pendingAction = NONE;
 
 //--- 指标句柄
 int atrHandle;
-int macdHandle;
 int emaHandles[EMA_COUNT];
 
 //--- 预分配缓冲区
 double supertrendBuffer[INDICATOR_BUFFER_SIZE];
 double gmmaShortBuffer[INDICATOR_BUFFER_SIZE];
 double gmmaLongBuffer[INDICATOR_BUFFER_SIZE];
-double macdLineBuffer[3];
-double signalLineBuffer[3];
 double closeBuffer[INDICATOR_BUFFER_SIZE];
 
 //--- 缓存变量
@@ -118,7 +90,6 @@ struct SignalData
 {
     bool gmmaSignal;
     bool supertrendSignal;
-    bool macdSignal;
     bool buySignal;
     bool sellSignal;
 };
@@ -129,7 +100,7 @@ struct SignalData
 int OnInit()
 {
     Print("=== EA初始化开始 ===");
-    Print("EA版本: v1.10 (手数计算修复版)");
+    Print("EA版本: v1.11 (无止损版本)");
     Print("交易品种: ", _Symbol);
     Print("时间周期: ", _Period);
     Print("当前K线数: ", Bars(_Symbol, _Period));
@@ -163,14 +134,14 @@ int OnInit()
     //--- 等待指标数据准备就绪
     if(!WaitForIndicatorData())
     {
-        Print("警告：指标数据未完全准备就绪，将在运行中逐步准备");
+        Print("警告:指标数据未完全准备就绪,将在运行中逐步准备");
     }
     
     //--- 显示手数计算模式
     PrintLotCalculationMode();
     
     Print("=== EA初始化完成 ===");
-    Print("Livermore Strategy EA 优化版初始化成功");
+    Print("Livermore Strategy EA 优化版初始化成功(无止损)");
     return(INIT_SUCCEEDED);
 }
 
@@ -204,37 +175,32 @@ bool ValidateInputParameters()
     Print("=== 参数验证开始 ===");
     Print("ATR_Period: ", ATR_Period);
     Print("SuperTrend_Factor: ", SuperTrend_Factor);
-    Print("MACD_Fast: ", MACD_Fast);
-    Print("MACD_Slow: ", MACD_Slow);
-    Print("MACD_Signal: ", MACD_Signal);
     Print("LotSize: ", LotSize);
     Print("LotMode: ", EnumToString(LotMode));
     
-    if(ATR_Period <= 0 || SuperTrend_Factor <= 0 || MACD_Fast <= 0 || MACD_Slow <= 0 || MACD_Signal <= 0)
+    if(ATR_Period <= 0 || SuperTrend_Factor <= 0)
     {
-        Print("错误：指标参数无效");
+        Print("错误:指标参数无效");
         return false;
     }
     
     if(LotSize <= 0)
     {
-        Print("错误：固定手数参数无效");
+        Print("错误:固定手数参数无效");
         return false;
     }
     
     if(BalancePerLot <= 0)
     {
-        Print("错误：BalancePerLot参数无效");
+        Print("错误:BalancePerLot参数无效");
         return false;
     }
-    
     
     if(MaxLotSize < MinLotSize)
     {
-        Print("错误：MaxLotSize不能小于MinLotSize");
+        Print("错误:MaxLotSize不能小于MinLotSize");
         return false;
     }
-    
     
     Print("=== 参数验证通过 ===");
     return true;
@@ -253,19 +219,10 @@ bool CreateIndicatorHandles()
     atrHandle = iATR(_Symbol, _Period, ATR_Period);
     if(atrHandle == INVALID_HANDLE)
     {
-        Print("错误：无法创建ATR指标句柄，错误代码: ", GetLastError());
+        Print("错误:无法创建ATR指标句柄,错误代码: ", GetLastError());
         return false;
     }
     Print("ATR句柄创建成功: ", atrHandle);
-    
-    Print("创建MACD指标句柄...");
-    macdHandle = iMACD(_Symbol, _Period, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE);
-    if(macdHandle == INVALID_HANDLE)
-    {
-        Print("错误：无法创建MACD指标句柄，错误代码: ", GetLastError());
-        return false;
-    }
-    Print("MACD句柄创建成功: ", macdHandle);
     
     Print("创建EMA指标句柄...");
     for(int i = 0; i < EMA_COUNT; i++)
@@ -273,7 +230,7 @@ bool CreateIndicatorHandles()
         emaHandles[i] = iMA(_Symbol, _Period, emaPeriods[i], 0, MODE_EMA, PRICE_CLOSE);
         if(emaHandles[i] == INVALID_HANDLE)
         {
-            Print("错误：无法创建EMA", emaPeriods[i], "指标句柄，错误代码: ", GetLastError());
+            Print("错误:无法创建EMA", emaPeriods[i], "指标句柄,错误代码: ", GetLastError());
             return false;
         }
         Print("EMA", emaPeriods[i], "句柄创建成功: ", emaHandles[i]);
@@ -291,8 +248,6 @@ void InitializeBuffers()
     ArrayInitialize(supertrendBuffer, 0);
     ArrayInitialize(gmmaShortBuffer, 0);
     ArrayInitialize(gmmaLongBuffer, 0);
-    ArrayInitialize(macdLineBuffer, 0);
-    ArrayInitialize(signalLineBuffer, 0);
     ArrayInitialize(closeBuffer, 0);
     
     Print("缓冲区初始化完成");
@@ -313,13 +268,13 @@ bool CheckTradingPermissions()
     
     if(!terminalTradeAllowed)
     {
-        Print("错误：终端不允许交易");
+        Print("错误:终端不允许交易");
         return false;
     }
     
     if(!mqlTradeAllowed)
     {
-        Print("错误：EA不允许交易");
+        Print("错误:EA不允许交易");
         return false;
     }
     
@@ -337,8 +292,7 @@ bool WaitForIndicatorData()
     
     while(waited < maxWait)
     {
-        if(BarsCalculated(atrHandle) > ATR_Period && 
-           BarsCalculated(macdHandle) > MACD_Slow)
+        if(BarsCalculated(atrHandle) > ATR_Period)
         {
             bool allEmaReady = true;
             for(int i = 0; i < EMA_COUNT; i++)
@@ -371,7 +325,6 @@ void OnDeinit(const int reason)
 {
     //--- 释放指标句柄
     ReleaseHandle(atrHandle);
-    ReleaseHandle(macdHandle);
     
     for(int i = 0; i < EMA_COUNT; i++)
     {
@@ -403,14 +356,16 @@ void ReleaseHandle(int &handle)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    //--- 检查新柱
+    //--- 检查新K线
     datetime currentBarTime = iTime(_Symbol, _Period, 0);
     bool isNewBar = (currentBarTime != lastBarTime);
     
     if(isNewBar)
     {
         lastBarTime = currentBarTime;
-        if(!UpdateIndicatorsOptimized())
+        
+        // 只在新K线时一次性更新所有指标
+        if(!UpdateAllIndicators())
         {
             return;
         }
@@ -454,71 +409,54 @@ void OnTick()
     
     if(hasPosition)
     {
-        // 检查移动止损
-        if(UseTrailingStop)
-        {
-            UpdateTrailingStop();
-        }
-        
         // 获取当前持仓方向
         bool isLongPosition = IsLongPosition();
         
-        // 根据持仓方向检查反向信号，实现平仓+反向开仓
+        // 根据持仓方向检查反向信号,实现平仓+反向开仓
         if(isLongPosition && signals.sellSignal)
         {
-            Print("检测到做空信号，平多仓并标记开空仓");
+            Print("检测到做空信号,平多仓并标记开空仓");
             ClosePosition();
             pendingAction = PENDING_SELL; // 标记下次tick开空仓
         }
         else if(!isLongPosition && signals.buySignal)
         {
-            Print("检测到买入信号，平空仓并标记开多仓");
+            Print("检测到买入信号,平空仓并标记开多仓");
             ClosePosition();
             pendingAction = PENDING_BUY; // 标记下次tick开多仓
         }
     }
     else
     {
-        // 没有持仓时，检查开仓信号
+        // 没有持仓时,检查开仓信号
         if(signals.buySignal && CanOpenNewPosition())
         {
-            Print("检测到买入信号，准备开多仓");
+            Print("检测到买入信号,准备开多仓");
             OpenBuyPosition();
         }
         else if(signals.sellSignal && CanOpenNewPosition())
         {
-            Print("检测到做空信号，准备开空仓");
+            Print("检测到做空信号,准备开空仓");
             OpenSellPosition();
         }
     }
 }
 
 //+------------------------------------------------------------------+
-//| 优化的指标更新函数                                              |
+//| 一次性更新所有指标（替代原来的分批更新）                          |
 //+------------------------------------------------------------------+
-bool UpdateIndicatorsOptimized()
+bool UpdateAllIndicators()
 {
-    static int updateCounter = 0;
-    updateCounter++;
-    
     bool success = true;
     
-    switch(updateCounter % 3)
-    {
-        case 0:
-            success = UpdateSuperTrend();
-            break;
-        case 1:
-            success = UpdateGMMA();
-            break;
-        case 2:
-            success = UpdateMACD();
-            break;
-    }
+    // 同时更新所有指标，确保数据同步
+    success &= UpdateSuperTrend();
+    success &= UpdateGMMA();
     
     if(success && !indicatorsReady)
     {
         indicatorsReady = true;
+        Print("所有指标更新完成并准备就绪");
     }
     
     return success;
@@ -615,27 +553,6 @@ bool UpdateGMMA()
     return true;
 }
 
-//+------------------------------------------------------------------+
-//| 更新MACD                                                        |
-//+------------------------------------------------------------------+
-bool UpdateMACD()
-{
-    double macdTmp[3], signalTmp[3];
-    
-    if(CopyBuffer(macdHandle, 0, 0, 3, macdTmp) < 3 || 
-       CopyBuffer(macdHandle, 1, 0, 3, signalTmp) < 3)
-    {
-        return false;
-    }
-    
-    for(int i = 0; i < 3; i++)
-    {
-        macdLineBuffer[i] = macdTmp[2-i];
-        signalLineBuffer[i] = signalTmp[2-i];
-    }
-    
-    return true;
-}
 
 //+------------------------------------------------------------------+
 //| 分析市场信号                                                    |
@@ -646,74 +563,67 @@ SignalData AnalyzeMarketSignals()
     
     signals.gmmaSignal = CheckGMMASignal();
     signals.supertrendSignal = CheckSupertrendSignal();
-    signals.macdSignal = CheckMACDSignal();
     
-    // 买入信号：GMMA上穿 + SuperTrend上升
+    // 买入信号:GMMA上穿 + SuperTrend上升
     signals.buySignal = signals.gmmaSignal && signals.supertrendSignal;
     
-    // 做空信号：GMMA下穿 + SuperTrend下降
+    // 做空信号:GMMA下穿 + SuperTrend下降
     signals.sellSignal = CheckShortSignal();
     
     return signals;
 }
 
 //+------------------------------------------------------------------+
-//| 检查GMMA信号                                                    |
+//| 检查GMMA信号（使用已确认K线）                                    |
 //+------------------------------------------------------------------+
 bool CheckGMMASignal()
 {
     if(INDICATOR_BUFFER_SIZE < 3) return false;
     
-    bool gmmaCrossUp = (gmmaShortBuffer[0] > gmmaLongBuffer[0]) && (gmmaShortBuffer[1] <= gmmaLongBuffer[1]);
-    bool gmmaPrevCondition = (gmmaShortBuffer[1] <= gmmaLongBuffer[1]) || (gmmaShortBuffer[2] <= gmmaLongBuffer[2]);
+    // 使用已确认的K线 [1] 和 [2]
+    bool gmmaCrossUp = (gmmaShortBuffer[1] > gmmaLongBuffer[1]) && 
+                       (gmmaShortBuffer[2] <= gmmaLongBuffer[2]);
+    bool gmmaPrevCondition = (gmmaShortBuffer[2] <= gmmaLongBuffer[2]) || 
+                             (gmmaShortBuffer[3] <= gmmaLongBuffer[3]);
     
     return gmmaCrossUp && gmmaPrevCondition;
 }
 
 //+------------------------------------------------------------------+
-//| 检查SuperTrend信号                                              |
+//| 检查SuperTrend信号（使用已确认K线）                              |
 //+------------------------------------------------------------------+
 bool CheckSupertrendSignal()
 {
     if(INDICATOR_BUFFER_SIZE < 3) return false;
     
-    // 使用已完成的K线 [1]，而不是当前K线 [0]
+    // 使用已完成的K线 [1] 和 [2]，而不是当前K线 [0]
     double prevClose = iClose(_Symbol, _Period, 1);
     bool priceAboveSupertrend = prevClose > supertrendBuffer[1];
     bool supertrendRising = supertrendBuffer[1] > supertrendBuffer[2];
     
-    // 只在新K线开始时触发
     return priceAboveSupertrend && supertrendRising;
 }
 
-//+------------------------------------------------------------------+
-//| 检查MACD信号                                                    |
-//+------------------------------------------------------------------+
-bool CheckMACDSignal()
-{
-    bool macdCrossUp = (macdLineBuffer[0] > signalLineBuffer[0]) && (macdLineBuffer[1] <= signalLineBuffer[1]);
-    return macdCrossUp;
-}
 
 //+------------------------------------------------------------------+
-//| 检查做空信号                                                    |
+//| 检查做空信号（使用已确认K线）                                    |
 //+------------------------------------------------------------------+
 bool CheckShortSignal()
 {
     if(INDICATOR_BUFFER_SIZE < 3) return false;
     
-    // GMMA下穿条件
-    bool gmmaCrossDown = (gmmaShortBuffer[0] < gmmaLongBuffer[0]) && (gmmaShortBuffer[1] >= gmmaLongBuffer[1]);
-    bool gmmaPrevConditionSell = gmmaShortBuffer[1] >= gmmaLongBuffer[1];
+    // GMMA下穿条件 - 使用已确认的K线 [1] 和 [2]
+    bool gmmaCrossDown = (gmmaShortBuffer[1] < gmmaLongBuffer[1]) && 
+                         (gmmaShortBuffer[2] >= gmmaLongBuffer[2]);
+    bool gmmaPrevConditionSell = gmmaShortBuffer[2] >= gmmaLongBuffer[2];
     bool gmmaShortSignal = gmmaCrossDown && gmmaPrevConditionSell;
     
-    // SuperTrend下降条件
-    double currentClose = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    bool priceBelowSupertrend = currentClose < supertrendBuffer[0];
+    // SuperTrend下降条件 - 使用已确认的K线收盘价
+    double prevClose = iClose(_Symbol, _Period, 1);
+    bool priceBelowSupertrend = prevClose < supertrendBuffer[1];
     
-    // 修复：使用与Pine Script一致的逻辑
-    // 计算SuperTrend方向：当前值 < 前一个值表示下降趋势
-    bool supertrendFalling = supertrendBuffer[0] < supertrendBuffer[1];
+    // 计算SuperTrend方向: [1] < [2] 表示下降趋势
+    bool supertrendFalling = supertrendBuffer[1] < supertrendBuffer[2];
     bool supertrendShortSignal = priceBelowSupertrend && supertrendFalling;
     
     return gmmaShortSignal && supertrendShortSignal;
@@ -732,11 +642,11 @@ bool CanOpenNewPosition()
 }
 
 //+------------------------------------------------------------------+
-//| 检查是否可以执行反向开仓（忽略同一K线限制）                    |
+//| 检查是否可以执行反向开仓(忽略同一K线限制)                    |
 //+------------------------------------------------------------------+
 bool CanOpenReversePosition()
 {
-    // 反向开仓不受同一K线限制，因为这是平仓后的反向操作
+    // 反向开仓不受同一K线限制,因为这是平仓后的反向操作
     return true;
 }
 
@@ -779,85 +689,6 @@ bool CheckOurPosition()
 }
 
 //+------------------------------------------------------------------+
-//| 计算动态止损价格                                                |
-//+------------------------------------------------------------------+
-double CalculateStopLoss(double entryPrice, bool isLong)
-{
-    double stopLoss = 0;
-    
-    if(!UseStopLoss) return 0;
-    
-    switch(StopLossType)
-    {
-        case FIXED_POINTS:
-            // 固定点数止损
-            if(isLong)
-                stopLoss = entryPrice - StopLoss_Points * _Point;
-            else
-                stopLoss = entryPrice + StopLoss_Points * _Point;
-            break;
-            
-        case ATR_BASED:
-            {
-                // 基于ATR的止损
-                double atrValues[1];
-                if(CopyBuffer(atrHandle, 0, 0, 1, atrValues) > 0)
-                {
-                    double atrStop = atrValues[0] * ATR_Multiplier;
-                    if(isLong)
-                        stopLoss = entryPrice - atrStop;
-                    else
-                        stopLoss = entryPrice + atrStop;
-                }
-                else
-                {
-                    // ATR获取失败，使用固定点数
-                    if(isLong)
-                        stopLoss = entryPrice - StopLoss_Points * _Point;
-                    else
-                        stopLoss = entryPrice + StopLoss_Points * _Point;
-                }
-            }
-            break;
-            
-        case SUPERTREND_BASED:
-            // 基于SuperTrend的止损
-            if(INDICATOR_BUFFER_SIZE > 0)
-            {
-                double supertrendValue = supertrendBuffer[0];
-                if(isLong)
-                    stopLoss = supertrendValue - SuperTrend_Offset * _Point;
-                else
-                    stopLoss = supertrendValue + SuperTrend_Offset * _Point;
-            }
-            else
-            {
-                // SuperTrend获取失败，使用固定点数
-                if(isLong)
-                    stopLoss = entryPrice - StopLoss_Points * _Point;
-                else
-                    stopLoss = entryPrice + StopLoss_Points * _Point;
-            }
-            break;
-    }
-    
-    // 确保止损距离符合经纪商要求
-    double minStopDistance = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
-    if(isLong)
-    {
-        if(entryPrice - stopLoss < minStopDistance)
-            stopLoss = entryPrice - minStopDistance - _Point;
-    }
-    else
-    {
-        if(stopLoss - entryPrice < minStopDistance)
-            stopLoss = entryPrice + minStopDistance + _Point;
-    }
-    
-    return NormalizeDouble(stopLoss, _Digits);
-}
-
-//+------------------------------------------------------------------+
 //| 检查最大持仓时间                                                |
 //+------------------------------------------------------------------+
 bool CheckMaxHoldTime()
@@ -870,100 +701,13 @@ bool CheckMaxHoldTime()
     
     if(holdTimeSeconds >= maxHoldSeconds)
     {
-        Print("持仓时间: ", holdTimeSeconds/3600.0, " 小时，超过最大限制: ", MaxHoldHours, " 小时");
+        Print("持仓时间: ", holdTimeSeconds/3600.0, " 小时,超过最大限制: ", MaxHoldHours, " 小时");
         return true;
     }
     
     return false;
 }
 
-//+------------------------------------------------------------------+
-//| 更新移动止损                                                    |
-//+------------------------------------------------------------------+
-void UpdateTrailingStop()
-{
-    if(!hasPosition) return;
-    
-    for(int i = PositionsTotal() - 1; i >= 0; i--)
-    {
-        if(positionInfo.SelectByIndex(i))
-        {
-            if(positionInfo.Symbol() == _Symbol && 
-               positionInfo.Magic() == MagicNumber)
-            {
-                double currentPrice = (positionInfo.PositionType() == POSITION_TYPE_BUY) ? 
-                                     SymbolInfoDouble(_Symbol, SYMBOL_BID) : 
-                                     SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-                
-                double openPrice = positionInfo.PriceOpen();
-                double currentSL = positionInfo.StopLoss();
-                double newSL = currentSL;
-                
-                if(positionInfo.PositionType() == POSITION_TYPE_BUY)
-                {
-                    // 多头移动止损
-                    double profit = currentPrice - openPrice;
-                    if(profit >= TrailingStart * _Point)
-                    {
-                        double trailSL = currentPrice - TrailingStop * _Point;
-                        
-                        // 安全检查：确保止损价格合理
-                        // 多头止损：必须低于当前价格，可以低于开仓价格（保护本金）
-                        if(trailSL < currentPrice)
-                        {
-                            // 只有当新的止损更有利时才更新
-                            if(trailSL > currentSL + TrailingStep * _Point || currentSL == 0)
-                            {
-                                newSL = trailSL;
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    // 空头移动止损
-                    double profit = openPrice - currentPrice;
-                    if(profit >= TrailingStart * _Point)
-                    {
-                        double trailSL = currentPrice + TrailingStop * _Point;
-                        
-                        // 安全检查：确保止损价格合理
-                        // 空头止损：必须高于当前价格，可以高于开仓价格（保护本金）
-                        if(trailSL > currentPrice)
-                        {
-                            // 只有当新的止损更有利时才更新
-                            if(trailSL < currentSL - TrailingStep * _Point || currentSL == 0)
-                            {
-                                newSL = trailSL;
-                            }
-                        }
-                    }
-                }
-                
-                // 更新止损
-                if(newSL != currentSL)
-                {
-                    Print("尝试更新移动止损: ", currentSL, " -> ", newSL);
-                    Print("当前价格: ", currentPrice, ", 开仓价格: ", openPrice);
-                    
-                    double profitPoints = (positionInfo.PositionType() == POSITION_TYPE_BUY) ? 
-                                         (currentPrice - openPrice)/_Point : (openPrice - currentPrice)/_Point;
-                    Print("盈利: ", DoubleToString(profitPoints, 2), " 点");
-                    
-                    if(trade.PositionModify(_Symbol, newSL, positionInfo.TakeProfit()))
-                    {
-                        Print("✓ 移动止损更新成功: ", currentSL, " -> ", newSL);
-                    }
-                    else
-                    {
-                        uint error = GetLastError();
-                        Print("✗ 移动止损更新失败 - 错误代码: ", error, ", 描述: ", ErrorDescription(error));
-                    }
-                }
-            }
-        }
-    }
-}
 
 //+------------------------------------------------------------------+
 //| 开多仓                                                          |
@@ -976,13 +720,13 @@ void OpenBuyPosition()
     // 检查手数是否有效
     if(lot <= 0)
     {
-        Print("错误：计算的手数无效: ", lot);
+        Print("错误:计算的手数无效: ", lot);
         return;
     }
     
-    // 计算动态止损
-    double sl = CalculateStopLoss(ask, true);   // 多头止损
-    double tp = 0; // 不使用止盈
+    // 不设置止损止盈
+    double sl = 0;
+    double tp = 0;
     
     // 显示保证金信息
     ShowMarginInfo(lot, ask);
@@ -990,8 +734,8 @@ void OpenBuyPosition()
     Print("=== 准备开多仓 ===");
     Print("当前价格(ASK): ", ask);
     Print("计算手数: ", lot);
-    Print("止损价格: ", sl, " (距离: ", (ask - sl)/_Point, " 点)");
-    Print("止盈: 禁用");
+    Print("止损: 无");
+    Print("止盈: 无");
     Print("手数模式: ", EnumToString(LotMode));
     
     if(trade.Buy(lot, _Symbol, ask, sl, tp, "Livermore Strategy Buy"))
@@ -1022,13 +766,13 @@ void OpenSellPosition()
     // 检查手数是否有效
     if(lot <= 0)
     {
-        Print("错误：计算的手数无效: ", lot);
+        Print("错误:计算的手数无效: ", lot);
         return;
     }
     
-    // 计算动态止损
-    double sl = CalculateStopLoss(bid, false);   // 空头止损
-    double tp = 0; // 不使用止盈
+    // 不设置止损止盈
+    double sl = 0;
+    double tp = 0;
     
     // 显示保证金信息
     ShowMarginInfo(lot, bid);
@@ -1036,8 +780,8 @@ void OpenSellPosition()
     Print("=== 准备开空仓 ===");
     Print("当前价格(BID): ", bid);
     Print("计算手数: ", lot);
-    Print("止损价格: ", sl, " (距离: ", (sl - bid)/_Point, " 点)");
-    Print("止盈: 禁用");
+    Print("止损: 无");
+    Print("止盈: 无");
     Print("手数模式: ", EnumToString(LotMode));
     
     if(trade.Sell(lot, _Symbol, bid, sl, tp, "Livermore Strategy Sell"))
@@ -1104,15 +848,15 @@ void ShowMarginInfo(double lot, double price)
         
         if(marginRatio > 80)
         {
-            Print("⚠ 严重警告：保证金占用超过80%，强烈建议减少手数！");
+            Print("⚠ 严重警告:保证金占用超过80%,强烈建议减少手数!");
         }
         else if(marginRatio > 50)
         {
-            Print("⚠ 警告：保证金占用过高，建议减少手数");
+            Print("⚠ 警告:保证金占用过高,建议减少手数");
         }
         else if(marginRatio > 30)
         {
-            Print("⚠ 注意：保证金占用较高，请谨慎交易");
+            Print("⚠ 注意:保证金占用较高,请谨慎交易");
         }
         else
         {
@@ -1180,7 +924,7 @@ double CalculateLotSize()
     // 最终检查
     if(calculatedLot < minLot)
     {
-        Print("⚠ 警告：计算手数小于最小值，使用最小手数: ", minLot);
+        Print("⚠ 警告:计算手数小于最小值,使用最小手数: ", minLot);
         calculatedLot = minLot;
     }
     
@@ -1216,7 +960,7 @@ string ErrorDescription(int error_code)
     switch(error_code)
     {
         case 0:     return "没有错误";
-        case 1:     return "没有错误，但结果未知";
+        case 1:     return "没有错误,但结果未知";
         case 2:     return "通用错误";
         case 3:     return "无效参数";
         case 4:     return "服务器忙";
@@ -1241,7 +985,7 @@ string ErrorDescription(int error_code)
         case 139:   return "订单被锁定";
         case 140:   return "只允许买";
         case 141:   return "尝试次数超过";
-        case 145:   return "修改被拒绝，因为订单太接近市场";
+        case 145:   return "修改被拒绝,因为订单太接近市场";
         case 146:   return "交易环境忙";
         case 147:   return "止损/止盈被经纪人禁止";
         case 148:   return "订单数量过多";
