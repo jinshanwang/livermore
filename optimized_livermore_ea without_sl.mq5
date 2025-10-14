@@ -467,7 +467,9 @@ bool UpdateAllIndicators()
 //+------------------------------------------------------------------+
 bool UpdateSuperTrend()
 {
+    Print("=== 开始更新SuperTrend ===");
     int copyCount = MathMin(INDICATOR_BUFFER_SIZE, 50);
+    Print("复制数据数量: ", copyCount);
     
     double atrValues[], highValues[], lowValues[], tempClose[];
     
@@ -476,6 +478,7 @@ bool UpdateSuperTrend()
        CopyLow(_Symbol, _Period, 0, copyCount, lowValues) < copyCount ||
        CopyClose(_Symbol, _Period, 0, copyCount, tempClose) < copyCount)
     {
+        Print("✗ SuperTrend数据复制失败");
         return false;
     }
     
@@ -507,6 +510,22 @@ bool UpdateSuperTrend()
             supertrendBuffer[i] = MathMax(lowerBand, supertrendBuffer[i + 1]);
     }
     
+    // 打印关键数据点 (最近3根K线)
+    Print("SuperTrend[0] (当前): ", DoubleToString(supertrendBuffer[0], _Digits));
+    Print("SuperTrend[1] (上一根): ", DoubleToString(supertrendBuffer[1], _Digits));
+    Print("SuperTrend[2] (上上根): ", DoubleToString(supertrendBuffer[2], _Digits));
+    Print("Close[0]: ", DoubleToString(closeBuffer[0], _Digits));
+    Print("Close[1]: ", DoubleToString(closeBuffer[1], _Digits));
+    Print("ATR[0]: ", DoubleToString(atrValues[0], _Digits));
+    Print("SuperTrend因子: ", SuperTrend_Factor);
+    
+    // 判断趋势方向
+    bool isUptrend = closeBuffer[1] > supertrendBuffer[1];
+    bool isRising = supertrendBuffer[1] > supertrendBuffer[2];
+    Print("SuperTrend趋势: ", isUptrend ? "上升" : "下降");
+    Print("SuperTrend方向: ", isRising ? "上涨" : "下跌");
+    Print("✓ SuperTrend更新完成");
+    
     return true;
 }
 
@@ -515,7 +534,10 @@ bool UpdateSuperTrend()
 //+------------------------------------------------------------------+
 bool UpdateGMMA()
 {
+    Print("=== 开始更新GMMA ===");
     int copyCount = MathMin(INDICATOR_BUFFER_SIZE, 30);
+    Print("复制数据数量: ", copyCount);
+    
     double emaValues[EMA_COUNT][30];
     double tempBuffer[];
     
@@ -523,6 +545,7 @@ bool UpdateGMMA()
     {
         if(CopyBuffer(emaHandles[i], 0, 0, copyCount, tempBuffer) < copyCount)
         {
+            Print("✗ GMMA EMA", emaPeriods[i], " 数据复制失败");
             return false;
         }
         ArraySetAsSeries(tempBuffer, true);
@@ -532,6 +555,7 @@ bool UpdateGMMA()
             emaValues[i][j] = tempBuffer[j];
         }
     }
+    Print("✓ 所有EMA数据复制成功");
     
     for(int bar = 0; bar < copyCount && bar < INDICATOR_BUFFER_SIZE; bar++)
     {
@@ -549,6 +573,55 @@ bool UpdateGMMA()
         }
         gmmaLongBuffer[bar] = longSum / 6.0;
     }
+    
+    // 打印关键数据点 (最近3根K线)
+    Print("--- GMMA短期组 (EMA3-15平均) ---");
+    Print("GMMA短期[0] (当前): ", DoubleToString(gmmaShortBuffer[0], _Digits));
+    Print("GMMA短期[1] (上一根): ", DoubleToString(gmmaShortBuffer[1], _Digits));
+    Print("GMMA短期[2] (上上根): ", DoubleToString(gmmaShortBuffer[2], _Digits));
+    
+    Print("--- GMMA长期组 (EMA30-60平均) ---");
+    Print("GMMA长期[0] (当前): ", DoubleToString(gmmaLongBuffer[0], _Digits));
+    Print("GMMA长期[1] (上一根): ", DoubleToString(gmmaLongBuffer[1], _Digits));
+    Print("GMMA长期[2] (上上根): ", DoubleToString(gmmaLongBuffer[2], _Digits));
+    
+    // 打印EMA原始值 (第1根K线)
+    Print("--- EMA原始值 [1] ---");
+    string emaShortStr = "";
+    for(int i = 0; i < 6; i++)
+    {
+        emaShortStr += "EMA" + IntegerToString(emaPeriods[i]) + "=" + DoubleToString(emaValues[i][1], _Digits) + " ";
+    }
+    Print("短期组: ", emaShortStr);
+    
+    string emaLongStr = "";
+    for(int i = 6; i < EMA_COUNT; i++)
+    {
+        emaLongStr += "EMA" + IntegerToString(emaPeriods[i]) + "=" + DoubleToString(emaValues[i][1], _Digits) + " ";
+    }
+    Print("长期组: ", emaLongStr);
+    
+    // 判断GMMA关系
+    bool shortAboveLong_0 = gmmaShortBuffer[0] > gmmaLongBuffer[0];
+    bool shortAboveLong_1 = gmmaShortBuffer[1] > gmmaLongBuffer[1];
+    bool shortAboveLong_2 = gmmaShortBuffer[2] > gmmaLongBuffer[2];
+    
+    Print("GMMA关系[0]: 短期", shortAboveLong_0 ? ">" : "<=", "长期");
+    Print("GMMA关系[1]: 短期", shortAboveLong_1 ? ">" : "<=", "长期");
+    Print("GMMA关系[2]: 短期", shortAboveLong_2 ? ">" : "<=", "长期");
+    
+    // 检测交叉
+    bool crossUp = (gmmaShortBuffer[1] > gmmaLongBuffer[1]) && (gmmaShortBuffer[2] <= gmmaLongBuffer[2]);
+    bool crossDown = (gmmaShortBuffer[1] < gmmaLongBuffer[1]) && (gmmaShortBuffer[2] >= gmmaLongBuffer[2]);
+    
+    if(crossUp)
+        Print(">>> 检测到GMMA金叉 (短期上穿长期) <<<");
+    else if(crossDown)
+        Print(">>> 检测到GMMA死叉 (短期下穿长期) <<<");
+    else
+        Print("GMMA状态: 无交叉");
+    
+    Print("✓ GMMA更新完成");
     
     return true;
 }
