@@ -1,0 +1,19 @@
+
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © jinshanwang731
+
+//@version=6
+indicator("我的脚本")
+plot(close)
+box_top = 100
+box_bottom = 90
+box_left = bar_index - 10
+box_right = bar_index
+
+color bgcolor_in_box = na // 明确指定为 color 类型
+box_color = color.new(color.blue, 80)
+
+var box mybox = na
+if bar_index == 20
+    mybox := box.new(left=box_left, top=box_top, right=box_right, bottom=box_bottom, border_color=color.blue, bgcolor=box_color)
+
