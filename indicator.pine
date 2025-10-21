@@ -53,10 +53,19 @@ factor = input.float(3.0, "SuperTrend 因子", minval=0.01, step=0.01)
 
 // ===== 授权过期设置 =====
 // 过期时间设置
-expireDate = timestamp("GMT+8",2025,10,23,0,0,0)
-if timenow > expireDate
-    label.new(bar_index, na, "Indicator has been expired", color=color.red, style=label.style_label_down, textcolor=color.white, size=size.large)
-    runtime.error("Indicator has been expired")
+expireDate = timestamp("GMT+8", 2025, 10, 23, 0, 0, 0)
+is_expired = timenow > expireDate  // 不要用 var，让它每次都计算
+
+// 过期提示（只在最后一根K线显示）
+var label expiry_label = na
+if is_expired and barstate.islast
+    label.delete(expiry_label)
+    expiry_label := label.new(bar_index, high, 
+                               "⚠️ Indicator has been expired\nExpiry: 2025-10-21 16:50 (GMT+8)", 
+                               color=color.red, 
+                               style=label.style_label_down, 
+                               textcolor=color.white, 
+                               size=size.large)
 
 [supertrend, direction] = ta.supertrend(factor, atrPeriod)
 
@@ -82,7 +91,7 @@ macdSignal = difCrossUp and macdHistPositive
 
 // ===== 综合买入信号 =====
 // buySignal = gmmaSignal and supertrendSignal and macdSignal
-buySignal = gmmaSignal and supertrendSignal
+buySignal = gmmaSignal and supertrendSignal and not is_expired
 // ===== 卖出信号条件 =====
 // GMMA 下穿条件
 gmmaCrossDown = ta.crossunder(shortAvg, longAvg)
@@ -103,7 +112,7 @@ macdSellSignal = difCrossDown and macdHistNegative
 
 // ===== 综合卖出信号 =====
 // sellSignal = gmmaSellSignal and supertrendSellSignal and macdSellSignal
-sellSignal = gmmaSellSignal and supertrendSellSignal
+sellSignal = gmmaSellSignal and supertrendSellSignal and not is_expired
 // ===== 可视化 =====
 
 // SuperTrend 线
