@@ -101,13 +101,24 @@ var float lastSellPrice = na
 var int lastSellBar = na
 var line tradeLine = na
 
+// 信号编号系统
+var string lastSignalType = ""  // "BUY" 或 "SELL"
+var int signalNumber = 0        // 当前信号编号
+
 if buySignal
+    // 信号编号逻辑：如果上一个信号是BUY，编号递增；否则重置为1
+    if lastSignalType == "BUY"
+        signalNumber := signalNumber + 1
+    else
+        signalNumber := 1
+    lastSignalType := "BUY"
+    
     // 使用 ATR 的 1.5 倍作为偏移量，让标签往下移
     atrValue = ta.atr(atrPeriod)
     labelOffset = atrValue * 1.5 + 50
     
     // 如果之前有卖出，画从卖到买的连线，并显示盈亏
-    buyText = "BUY\n" + str.tostring(close, "#.##")
+    buyText = "BUY #" + str.tostring(signalNumber) + "\n" + str.tostring(close, "#.##")
     if not na(lastSellPrice)
         pointDiff = lastSellPrice - close  // 做空盈亏：卖价 - 买价
         tradeLine := line.new(x1=lastSellBar, y1=lastSellPrice, x2=bar_index, y2=close, color=pointDiff >= 0 ? color.green : color.red, width=2)
@@ -123,12 +134,19 @@ if buySignal
     line.new(bar_index, low - labelOffset, bar_index, low, color=color.new(color.green, 50), width=2, style=line.style_dotted)
 
 if sellSignal
+    // 信号编号逻辑：如果上一个信号是SELL，编号递增；否则重置为1
+    if lastSignalType == "SELL"
+        signalNumber := signalNumber + 1
+    else
+        signalNumber := 1
+    lastSignalType := "SELL"
+    
     // 使用 ATR 的 1.5 倍作为偏移量，让标签往上移
     atrValue = ta.atr(atrPeriod)
     labelOffset = atrValue * 1.5 + 50
     
     // 如果之前有买入，画从买到卖的连线，并显示盈亏
-    sellText = "SELL\n" + str.tostring(close, "#.##")
+    sellText = "SELL #" + str.tostring(signalNumber) + "\n" + str.tostring(close, "#.##")
     if not na(lastBuyPrice)
         pointDiff = close - lastBuyPrice  // 做多盈亏：卖价 - 买价
         tradeLine := line.new(x1=lastBuyBar, y1=lastBuyPrice, x2=bar_index, y2=close, color=pointDiff >= 0 ? color.green : color.red, width=2)
