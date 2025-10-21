@@ -104,7 +104,7 @@ var line tradeLine = na
 if buySignal
     // 使用 ATR 的 1.5 倍作为偏移量，让标签往下移
     atrValue = ta.atr(atrPeriod)
-    labelOffset = atrValue * 1.5
+    labelOffset = atrValue * 1.5 + 50
     
     // 如果之前有卖出，画从卖到买的连线，并显示盈亏
     buyText = "BUY\n" + str.tostring(close, "#.##")
@@ -125,7 +125,7 @@ if buySignal
 if sellSignal
     // 使用 ATR 的 1.5 倍作为偏移量，让标签往上移
     atrValue = ta.atr(atrPeriod)
-    labelOffset = atrValue * 1.5
+    labelOffset = atrValue * 1.5 + 50
     
     // 如果之前有买入，画从买到卖的连线，并显示盈亏
     sellText = "SELL\n" + str.tostring(close, "#.##")
