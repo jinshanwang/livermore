@@ -120,9 +120,11 @@ sellSignal = gmmaSellSignal  and supertrendSellSignal
 // 记录上一次买入价和bar
 var float lastBuyPrice = na
 var int lastBuyBar = na
+var float lastBuyLabelY = na    // 记录上次买入label的Y坐标
 // 记录上一次卖出价和bar
 var float lastSellPrice = na
 var int lastSellBar = na
+var float lastSellLabelY = na   // 记录上次卖出label的Y坐标
 var line tradeLine = na
 
 // 信号编号系统
@@ -140,22 +142,26 @@ if buySignal
     // 使用 ATR 的 1.5 倍作为偏移量，让标签往下移
     atrValue = ta.atr(atrPeriod)
     labelOffset = atrValue * 1.5 + 50
+    currentBuyLabelY = low - labelOffset  // 当前买入label的Y坐标
     
-    // 如果之前有卖出，画从卖到买的连线，并显示盈亏
+    // 如果之前有卖出，画从卖出label到买入label的连线，并显示盈亏
     buyText = "BUY #" + str.tostring(signalNumber) + "\n" + str.tostring(close, "#.##")
     if not na(lastSellPrice)
         pointDiff = lastSellPrice - close  // 做空盈亏：卖价 - 买价
-        tradeLine := line.new(x1=lastSellBar, y1=lastSellPrice, x2=bar_index, y2=close, color=pointDiff >= 0 ? color.green : color.red, width=2)
+        // 从上次卖出label连到当前买入label
+        tradeLine := line.new(x1=lastSellBar, y1=lastSellLabelY, x2=bar_index, y2=currentBuyLabelY, color=pointDiff >= 0 ? color.green : color.red, width=2)
         buyText := buyText + "\nΔ: " + str.tostring(pointDiff, "#.##")
         lastSellPrice := na
         lastSellBar := na
+        lastSellLabelY := na
     
     lastBuyPrice := close
     lastBuyBar := bar_index
+    lastBuyLabelY := currentBuyLabelY  // 保存当前买入label位置
     
-    label.new(bar_index, low - labelOffset, text=buyText, style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
+    label.new(bar_index, currentBuyLabelY, text=buyText, style=label.style_label_up, color=color.green, textcolor=color.white, size=size.small)
     // 添加从标签到K线的箭头指向线（虚线效果）
-    line.new(bar_index, low - labelOffset, bar_index, low, color=color.new(color.green, 50), width=2, style=line.style_dotted)
+    line.new(bar_index, currentBuyLabelY, bar_index, low, color=color.new(color.green, 50), width=2, style=line.style_dotted)
 
 
 if sellSignal
@@ -169,20 +175,24 @@ if sellSignal
     // 使用 ATR 的 1.5 倍作为偏移量，让标签往上移
     atrValue = ta.atr(atrPeriod)
     labelOffset = atrValue * 1.5 + 50
+    currentSellLabelY = high + labelOffset  // 当前卖出label的Y坐标
     
-    // 如果之前有买入，画从买到卖的连线，并显示盈亏
+    // 如果之前有买入，画从买入label到卖出label的连线，并显示盈亏
     sellText = "SELL #" + str.tostring(signalNumber) + "\n" + str.tostring(close, "#.##")
     if not na(lastBuyPrice)
         pointDiff = close - lastBuyPrice  // 做多盈亏：卖价 - 买价
-        tradeLine := line.new(x1=lastBuyBar, y1=lastBuyPrice, x2=bar_index, y2=close, color=pointDiff >= 0 ? color.green : color.red, width=2)
+        // 从上次买入label连到当前卖出label
+        tradeLine := line.new(x1=lastBuyBar, y1=lastBuyLabelY, x2=bar_index, y2=currentSellLabelY, color=pointDiff >= 0 ? color.green : color.red, width=2)
         sellText := sellText + "\nΔ: " + str.tostring(pointDiff, "#.##")
         lastBuyPrice := na
         lastBuyBar := na
+        lastBuyLabelY := na
     
     // 记录卖出价格和bar（用于下次买入时画连线）
     lastSellPrice := close
     lastSellBar := bar_index
+    lastSellLabelY := currentSellLabelY  // 保存当前卖出label位置
     
-    label.new(bar_index, high + labelOffset, text=sellText, style=label.style_label_down, color=color.red, textcolor=color.white, size=size.normal)
+    label.new(bar_index, currentSellLabelY, text=sellText, style=label.style_label_down, color=color.red, textcolor=color.white, size=size.normal)
     // 添加从标签到K线的箭头指向线（虚线效果）
-    line.new(bar_index, high + labelOffset, bar_index, high, color=color.new(color.red, 50), width=2, style=line.style_dotted)
+    line.new(bar_index, currentSellLabelY, bar_index, high, color=color.new(color.red, 50), width=2, style=line.style_dotted)
